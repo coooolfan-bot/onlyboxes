@@ -25,6 +25,10 @@ go.work.sum
 
 # Python artifacts
 *.pyc
+__pycache__/
+*.pyo
+.venv/
+*.egg-info/
 
 # Frontend artifacts (web)
 web/node_modules/

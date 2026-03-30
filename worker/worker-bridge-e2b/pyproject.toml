@@ -1,0 +1,31 @@
+[project]
+name = "worker-bridge-e2b"
+version = "0.1.0"
+description = "Onlyboxes worker bridge for e2b sandboxes"
+requires-python = ">=3.11"
+dependencies = [
+    "e2b>=1.0.0",
+    "grpcio>=1.68.0",
+    "grpcio-tools>=1.68.0",
+    "protobuf>=5.0.0",
+    "structlog>=24.0.0",
+]
+
+[project.scripts]
+worker-bridge-e2b = "worker_bridge_e2b.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/worker_bridge_e2b"]
+
+[tool.hatch.build.targets.editable]
+packages = ["src/worker_bridge_e2b"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
