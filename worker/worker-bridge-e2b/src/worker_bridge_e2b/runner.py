@@ -24,29 +24,33 @@ TERMINAL_EXEC_CAPABILITY = "terminalexec"
 
 async def run(cfg: Config, stop_event: asyncio.Event) -> None:
     """Main loop: reconnect on failure until stop_event is set."""
-    reconnect_delay = INITIAL_RECONNECT_DELAY_SEC
-    while not stop_event.is_set():
-        try:
-            await _run_session(cfg, stop_event)
-            return
-        except asyncio.CancelledError:
-            return
-        except grpc.RpcError as exc:
-            if exc.code() == grpc.StatusCode.FAILED_PRECONDITION:
-                logger.warning("registry session replaced, reconnecting immediately")
-                reconnect_delay = INITIAL_RECONNECT_DELAY_SEC
-            else:
-                logger.warning("registry session interrupted", error=str(exc))
-        except Exception as exc:
-            logger.warning("registry session error", error=str(exc))
+    executor.init(cfg)
+    try:
+        reconnect_delay = INITIAL_RECONNECT_DELAY_SEC
+        while not stop_event.is_set():
+            try:
+                await _run_session(cfg, stop_event)
+                return
+            except asyncio.CancelledError:
+                return
+            except grpc.RpcError as exc:
+                if exc.code() == grpc.StatusCode.FAILED_PRECONDITION:
+                    logger.warning("registry session replaced, reconnecting immediately")
+                    reconnect_delay = INITIAL_RECONNECT_DELAY_SEC
+                else:
+                    logger.warning("registry session interrupted", error=str(exc))
+            except Exception as exc:
+                logger.warning("registry session error", error=str(exc))
 
-        try:
-            jitter = random.uniform(0, reconnect_delay * 0.2)
-            await asyncio.wait_for(stop_event.wait(), timeout=reconnect_delay + jitter)
-            return
-        except asyncio.TimeoutError:
-            pass
-        reconnect_delay = min(reconnect_delay * 2, MAX_RECONNECT_DELAY_SEC)
+            try:
+                jitter = random.uniform(0, reconnect_delay * 0.2)
+                await asyncio.wait_for(stop_event.wait(), timeout=reconnect_delay + jitter)
+                return
+            except asyncio.TimeoutError:
+                pass
+            reconnect_delay = min(reconnect_delay * 2, MAX_RECONNECT_DELAY_SEC)
+    finally:
+        executor.shutdown()
 
 
 async def _run_session(cfg: Config, stop_event: asyncio.Event) -> None:

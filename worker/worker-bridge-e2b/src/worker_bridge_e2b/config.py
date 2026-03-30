@@ -23,17 +23,22 @@ class Config:
     version: str
     labels: dict[str, str]
     e2b_api_key: str
-    e2b_sandbox_template: str
+    e2b_python_exec_template: str
+    e2b_terminal_exec_template: str
     e2b_sandbox_timeout_sec: int
     echo_max_inflight: int
     python_exec_max_inflight: int
     terminal_exec_max_inflight: int
+    terminal_lease_min_sec: int
+    terminal_lease_max_sec: int
+    terminal_lease_default_sec: int
+    terminal_output_limit_bytes: int
     log_level: str
     log_format: str
 
     @classmethod
     def load(cls) -> "Config":
-        return cls(
+        cfg = cls(
             console_grpc_target=_get_env("WORKER_CONSOLE_GRPC_TARGET", DEFAULT_CONSOLE_TARGET),
             console_tls=os.environ.get("WORKER_CONSOLE_INSECURE", "") != "true",
             worker_id=os.environ.get("WORKER_ID", "").strip(),
@@ -45,14 +50,27 @@ class Config:
             version=_get_env("WORKER_VERSION", "dev"),
             labels=_parse_labels(os.environ.get("WORKER_LABELS", "")),
             e2b_api_key=os.environ.get("E2B_API_KEY", "").strip(),
-            e2b_sandbox_template=_get_env("E2B_SANDBOX_TEMPLATE", "base"),
+            e2b_python_exec_template=_get_env("E2B_PYTHON_EXEC_TEMPLATE", "base"),
+            e2b_terminal_exec_template=_get_env("E2B_TERMINAL_EXEC_TEMPLATE", "base"),
             e2b_sandbox_timeout_sec=_parse_positive_int("E2B_SANDBOX_TIMEOUT_SEC", 300),
             echo_max_inflight=_parse_positive_int("WORKER_ECHO_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
             python_exec_max_inflight=_parse_positive_int("WORKER_PYTHON_EXEC_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
             terminal_exec_max_inflight=_parse_positive_int("WORKER_TERMINAL_EXEC_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
+            terminal_lease_min_sec=_parse_positive_int("WORKER_TERMINAL_LEASE_MIN_SEC", 60),
+            terminal_lease_max_sec=_parse_positive_int("WORKER_TERMINAL_LEASE_MAX_SEC", 1800),
+            terminal_lease_default_sec=_parse_positive_int("WORKER_TERMINAL_LEASE_DEFAULT_SEC", 60),
+            terminal_output_limit_bytes=_parse_positive_int("WORKER_TERMINAL_OUTPUT_LIMIT_BYTES", 1048576),
             log_level=_parse_log_level("WORKER_LOG_LEVEL", DEFAULT_LOG_LEVEL),
             log_format=_parse_log_format("WORKER_LOG_FORMAT", DEFAULT_LOG_FORMAT),
         )
+        # Clamp lease values: max >= min, default in [min, max]
+        if cfg.terminal_lease_max_sec < cfg.terminal_lease_min_sec:
+            cfg.terminal_lease_max_sec = cfg.terminal_lease_min_sec
+        if cfg.terminal_lease_default_sec < cfg.terminal_lease_min_sec:
+            cfg.terminal_lease_default_sec = cfg.terminal_lease_min_sec
+        if cfg.terminal_lease_default_sec > cfg.terminal_lease_max_sec:
+            cfg.terminal_lease_default_sec = cfg.terminal_lease_max_sec
+        return cfg
 
 
 def _get_env(key: str, default: str) -> str:

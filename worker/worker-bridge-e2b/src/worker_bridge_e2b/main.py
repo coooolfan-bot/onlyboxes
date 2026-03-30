@@ -30,7 +30,8 @@ def main() -> None:
         console=cfg.console_grpc_target,
         tls=cfg.console_tls,
         version=cfg.version,
-        sandbox_template=cfg.e2b_sandbox_template,
+        python_exec_template=cfg.e2b_python_exec_template,
+        terminal_exec_template=cfg.e2b_terminal_exec_template,
     )
 
     asyncio.run(_run_async(cfg))
