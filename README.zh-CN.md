@@ -120,7 +120,7 @@ curl -fsSL https://onlybox.es/install.sh | bash
 ### 5）启动 worker
 
 > [!WARNING]
-> worker 支持不同运行时与运行环境，当前版本仅提供 `worker-docker`。本小节以此 docker 运行时为例。
+> worker 支持不同运行时与运行环境，可用的 worker 实现包括 `worker-docker`、`worker-boxlite`、`worker-sys` 和 `worker-bridge-e2b`。本小节以 docker 运行时为例。
 
 1. 登陆到需要部署 worker 的机器。
     - 确保 Docker Engine 已安装。
@@ -182,7 +182,9 @@ curl -fsSL https://onlybox.es/install.sh | bash
 | `CONSOLE_DASHBOARD_USERNAME` | _(空)_ | 仅首次初始化管理员账号时生效 |
 | `CONSOLE_DASHBOARD_PASSWORD` | _(空)_ | 仅首次初始化管理员账号时生效 |
 
-### Worker（`worker-docker`）
+### Worker
+
+不同 worker 实现有不同的配置选项。以下是 `worker-docker` 的常用选项摘要：
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -195,6 +197,8 @@ curl -fsSL https://onlybox.es/install.sh | bash
 | `WORKER_PYTHON_EXEC_DOCKER_IMAGE` | `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` | `pythonExec` 运行镜像 |
 | `WORKER_TERMINAL_EXEC_DOCKER_IMAGE` | `coolfan1024/onlyboxes-runtime:default` | `terminalExec` 运行镜像 |
 | `WORKER_TERMINAL_OUTPUT_LIMIT_BYTES` | `1048576` | 单路输出流字节上限 |
+
+其他 worker 实现（`worker-boxlite`、`worker-sys`、`worker-bridge-e2b`）的配置请参考 `worker/` 目录下各自的 README 文件。
 
 ## API 面
 
@@ -226,7 +230,11 @@ yarn --cwd web dev
 
 - 统一 API 文档：`README/API.zh-CN.md`
 - Console 细节：`console/README/overview.md`
-- Worker 细节：`worker/worker-docker/README/overview.md`
+- Worker 细节：
+  - `worker/worker-docker/README/overview.md`
+  - `worker/worker-boxlite/README/overview.md`
+  - `worker/worker-sys/README/overview.md`
+  - `worker/worker-bridge-e2b/README.md`
 - API/proto 说明：`api/README/proto.md`
 - Web 说明：`web/README.md`
 

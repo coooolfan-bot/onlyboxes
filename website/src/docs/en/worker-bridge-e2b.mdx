@@ -1,0 +1,145 @@
+export const meta = {
+  title: 'E2B Bridge',
+  description: 'Run executions through e2b cloud sandboxes with worker-bridge-e2b.',
+  section: 'Runtimes',
+  order: 48,
+  slug: 'worker-bridge-e2b',
+}
+
+# E2B Bridge Runtime
+
+`worker-bridge-e2b` bridges Onlyboxes to the [e2b](https://e2b.dev/) cloud sandbox platform. It connects to the console via gRPC and exposes e2b sandboxes as a standard worker supporting echo, pythonExec, and terminalExec.
+
+## When to use
+
+- You want cloud-based sandboxes without managing infrastructure
+- You need rapid scaling without local resource constraints
+- You prefer pay-per-use over self-hosted compute
+- You already have e2b templates configured
+
+## How it works
+
+1. The worker connects to the control node over gRPC.
+2. For `pythonExec`, it creates a fresh e2b sandbox, writes code to `/tmp/code.py`, executes it via `uv run /tmp/code.py` (supports PEP 723 inline dependencies), and destroys the sandbox.
+3. For `terminalExec`, it creates persistent e2b sandbox sessions with lease-based TTL. Sessions are reused for subsequent commands with the same `session_id` and cleaned up automatically when idle.
+4. Output is streamed back through the control plane.
+
+## Prerequisites
+
+- An e2b account with API key
+- Pre-configured e2b templates for Python and terminal execution
+- Network access to the control node gRPC endpoint
+
+### Template requirements
+
+**Python execution template** (`E2B_PYTHON_EXEC_TEMPLATE`):
+- Must have `uv` pre-installed (recommended base: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`)
+
+**Terminal execution template** (`E2B_TERMINAL_EXEC_TEMPLATE`):
+- Should include general-purpose tools your terminal sessions need
+- Can be a custom template with pre-installed packages
+
+## Starting the worker
+
+`worker-bridge-e2b` is implemented in Python and requires `uv` for dependency management. Clone the repository and set up the worker:
+
+```bash
+cd worker/worker-bridge-e2b
+uv sync
+bash scripts/gen_proto.sh  # regenerate protobuf stubs if needed
+```
+
+Then start the worker:
+
+```bash
+WORKER_CONSOLE_GRPC_TARGET=127.0.0.1:50051 \
+WORKER_CONSOLE_INSECURE=true \
+WORKER_ID=<worker_id> \
+WORKER_SECRET=<worker_secret> \
+E2B_API_KEY=<e2b_api_key> \
+E2B_PYTHON_EXEC_TEMPLATE=<template_for_python> \
+E2B_TERMINAL_EXEC_TEMPLATE=<template_for_terminal> \
+uv run worker-bridge-e2b
+```
+
+Set `WORKER_CONSOLE_INSECURE=true` when connecting without TLS.
+
+## Environment variables
+
+### Required
+
+| Variable | Description |
+| --- | --- |
+| `WORKER_ID` | Worker node ID from the dashboard |
+| `WORKER_SECRET` | One-time secret from worker creation |
+| `E2B_API_KEY` | Your e2b API key |
+
+### Connection
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `WORKER_CONSOLE_GRPC_TARGET` | No | `127.0.0.1:50051` | Control node gRPC address |
+| `WORKER_CONSOLE_INSECURE` | No | `false` | Set `true` to allow insecure connections (non-TLS) |
+
+### Identity
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `WORKER_NODE_NAME` | No | | Human-readable node name |
+| `WORKER_VERSION` | No | `dev` | Version reported to console |
+| `WORKER_LABELS` | No | | CSV labels, e.g. `region=us,cloud=e2b` |
+
+### E2B sandbox
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `E2B_PYTHON_EXEC_TEMPLATE` | No | `base` | Sandbox template for pythonExec |
+| `E2B_TERMINAL_EXEC_TEMPLATE` | No | `base` | Sandbox template for terminalExec |
+| `E2B_SANDBOX_TIMEOUT_SEC` | No | `300` | Sandbox lifetime in seconds |
+
+### Concurrency
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `WORKER_ECHO_MAX_INFLIGHT` | No | `4` | Max concurrent echo commands |
+| `WORKER_PYTHON_EXEC_MAX_INFLIGHT` | No | `4` | Max concurrent pythonExec commands |
+| `WORKER_TERMINAL_EXEC_MAX_INFLIGHT` | No | `4` | Max concurrent terminalExec commands |
+
+### Terminal session leases
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `WORKER_TERMINAL_LEASE_MIN_SEC` | No | `60` | Minimum lease duration (seconds) |
+| `WORKER_TERMINAL_LEASE_MAX_SEC` | No | `1800` | Maximum lease duration (seconds) |
+| `WORKER_TERMINAL_LEASE_DEFAULT_SEC` | No | `60` | Default lease duration (seconds) |
+| `WORKER_TERMINAL_OUTPUT_LIMIT_BYTES` | No | `1048576` | Output limit per stream (bytes) |
+
+### Heartbeat
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `WORKER_HEARTBEAT_INTERVAL_SEC` | No | `5` | Heartbeat interval (seconds) |
+| `WORKER_HEARTBEAT_JITTER_PCT` | No | `20` | Jitter percentage (0–100) |
+
+### Logging
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `WORKER_LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error` |
+| `WORKER_LOG_FORMAT` | No | `json` | `json` / `text` |
+
+## Cost considerations
+
+Unlike self-hosted workers, e2b charges based on sandbox usage. Monitor your e2b dashboard to track costs. Consider:
+
+- Short-lived `pythonExec` sandboxes are created and destroyed per execution
+- Long-running `terminalExec` sessions persist until lease expiration
+- Adjust lease timeouts to balance session reuse vs. idle costs
+
+## Related docs
+
+- [Architecture](/en/docs/architecture)
+- [Quick Start](/en/docs/quick-start)
+- [Docker Runtime](/en/docs/worker-docker)
+- [Boxlite Runtime](/en/docs/worker-boxlite)
+- [System Process Runtime](/en/docs/worker-sys)

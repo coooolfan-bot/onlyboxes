@@ -120,7 +120,7 @@ Default endpoints:
 ### 5) Run worker
 
 > [!WARNING]
-> Workers support different runtimes and environments. The current release only provides `worker-docker`. This section uses the Docker runtime as an example.
+> Workers support different runtimes and environments. Available worker implementations include `worker-docker`, `worker-boxlite`, `worker-sys`, and `worker-bridge-e2b`. This section uses the Docker runtime as an example.
 
 1. Log in to the machine where the worker will be deployed.
     - Ensure Docker Engine is installed.
@@ -182,7 +182,9 @@ Default endpoints:
 | `CONSOLE_DASHBOARD_USERNAME` | _(empty)_ | Used only for first admin initialization |
 | `CONSOLE_DASHBOARD_PASSWORD` | _(empty)_ | Used only for first admin initialization |
 
-### Worker (`worker-docker`)
+### Worker
+
+Different worker implementations have different configuration options. Below is a summary of common options for `worker-docker`:
 
 | Environment Variable | Default | Notes |
 | --- | --- | --- |
@@ -195,6 +197,8 @@ Default endpoints:
 | `WORKER_PYTHON_EXEC_DOCKER_IMAGE` | `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` | Runtime image for `pythonExec` |
 | `WORKER_TERMINAL_EXEC_DOCKER_IMAGE` | `coolfan1024/onlyboxes-runtime:default` | Runtime image for `terminalExec` |
 | `WORKER_TERMINAL_OUTPUT_LIMIT_BYTES` | `1048576` | Per-stream output limit |
+
+For other worker implementations (`worker-boxlite`, `worker-sys`, `worker-bridge-e2b`), see their respective README files in the `worker/` directory.
 
 ## API Surfaces
 
@@ -226,7 +230,11 @@ Web dev URL defaults to `http://127.0.0.1:5178` and proxies `/api/*` to `http://
 
 - Unified API reference: `README/API.md`
 - Console internals: `console/README/overview.md`
-- Worker internals: `worker/worker-docker/README/overview.md`
+- Worker internals:
+  - `worker/worker-docker/README/overview.md`
+  - `worker/worker-boxlite/README/overview.md`
+  - `worker/worker-sys/README/overview.md`
+  - `worker/worker-bridge-e2b/README.md`
 - API/proto guide: `api/README/proto.md`
 - Web app guide: `web/README.md`
 
