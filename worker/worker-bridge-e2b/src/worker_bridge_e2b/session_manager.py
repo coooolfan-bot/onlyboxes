@@ -130,33 +130,51 @@ class TerminalSessionManager:
         session: _TerminalSession | None = None
 
         if not session_id:
-            # New session
+            # New session with auto-generated ID
             session_id = str(uuid.uuid4())
             sandbox = self._create_sandbox()
-            session = _TerminalSession(session_id, sandbox, lease_target)
-            created = True
-            with self._lock:
-                self._sessions[session_id] = session
+            try:
+                session = _TerminalSession(session_id, sandbox, lease_target)
+                created = True
+                with self._lock:
+                    self._sessions[session_id] = session
+            except BaseException:
+                _kill_sandbox_safe(sandbox, session_id)
+                raise
         else:
+            # Check if session exists first (without holding lock during creation)
             with self._lock:
                 existing = self._sessions.get(session_id)
-                if existing is None:
-                    if not create_if_missing:
-                        raise TerminalExecError(
-                            "session_not_found", "session not found"
-                        )
-                    # Create with caller-supplied session_id
-                    sandbox = self._create_sandbox()
-                    session = _TerminalSession(session_id, sandbox, lease_target)
-                    created = True
-                    self._sessions[session_id] = session
-                else:
+                if existing is not None:
                     if existing.busy:
                         raise TerminalExecError("session_busy", "session is busy")
                     existing.busy = True
                     if lease_target > existing.lease_expires_at:
                         existing.lease_expires_at = lease_target
                     session = existing
+
+            if session is None:
+                if not create_if_missing:
+                    raise TerminalExecError(
+                        "session_not_found", "session not found"
+                    )
+                # Create sandbox outside lock to avoid blocking other operations
+                sandbox = self._create_sandbox()
+                try:
+                    session = _TerminalSession(session_id, sandbox, lease_target)
+                    with self._lock:
+                        # Check again in case another thread created it
+                        if session_id in self._sessions:
+                            _kill_sandbox_safe(sandbox, session_id)
+                            raise TerminalExecError(
+                                "session_conflict",
+                                "session was created by another request",
+                            )
+                        self._sessions[session_id] = session
+                        created = True
+                except BaseException:
+                    _kill_sandbox_safe(sandbox, session_id)
+                    raise
 
         # Compute command timeout from deadline
         cmd_timeout: float | None = None
