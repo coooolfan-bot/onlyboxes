@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 DEFAULT_CONSOLE_TARGET = "127.0.0.1:50051"
 DEFAULT_HEARTBEAT_INTERVAL_SEC = 5
@@ -39,31 +39,49 @@ class Config:
     log_format: str
 
     @classmethod
-    def load(cls) -> "Config":
+    def load(cls) -> Config:
         cfg = cls(
             console_grpc_target=_get_env("WORKER_CONSOLE_GRPC_TARGET", DEFAULT_CONSOLE_TARGET),
             console_tls=os.environ.get("WORKER_CONSOLE_INSECURE", "") != "true",
             worker_id=os.environ.get("WORKER_ID", "").strip(),
             worker_secret=os.environ.get("WORKER_SECRET", "").strip(),
-            heartbeat_interval_sec=_parse_positive_int("WORKER_HEARTBEAT_INTERVAL_SEC", DEFAULT_HEARTBEAT_INTERVAL_SEC),
-            heartbeat_jitter_pct=_parse_percent("WORKER_HEARTBEAT_JITTER_PCT", DEFAULT_HEARTBEAT_JITTER_PCT),
+            heartbeat_interval_sec=_parse_positive_int(
+                "WORKER_HEARTBEAT_INTERVAL_SEC", DEFAULT_HEARTBEAT_INTERVAL_SEC
+            ),
+            heartbeat_jitter_pct=_parse_percent(
+                "WORKER_HEARTBEAT_JITTER_PCT", DEFAULT_HEARTBEAT_JITTER_PCT
+            ),
             node_name=os.environ.get("WORKER_NODE_NAME", "").strip(),
             executor_kind=DEFAULT_EXECUTOR_KIND,
             version=_get_env("WORKER_VERSION", "dev"),
             labels=_parse_labels(os.environ.get("WORKER_LABELS", "")),
             e2b_api_key=os.environ.get("E2B_API_KEY", "").strip(),
-            e2b_python_exec_template=_get_env("E2B_PYTHON_EXEC_TEMPLATE", "coolfan1024/python-exec"),
-            e2b_terminal_exec_template=_get_env("E2B_TERMINAL_EXEC_TEMPLATE", "coolfan1024/terminal-exec"),
+            e2b_python_exec_template=_get_env(
+                "E2B_PYTHON_EXEC_TEMPLATE", "coolfan1024/python-exec"
+            ),
+            e2b_terminal_exec_template=_get_env(
+                "E2B_TERMINAL_EXEC_TEMPLATE", "coolfan1024/terminal-exec"
+            ),
             e2b_sandbox_timeout_sec=_parse_positive_int("E2B_SANDBOX_TIMEOUT_SEC", 300),
             echo_max_inflight=_parse_positive_int("WORKER_ECHO_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
-            python_exec_max_inflight=_parse_positive_int("WORKER_PYTHON_EXEC_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
-            terminal_exec_max_inflight=_parse_positive_int("WORKER_TERMINAL_EXEC_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
-            terminal_resource_max_inflight=_parse_positive_int("WORKER_TERMINAL_RESOURCE_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
+            python_exec_max_inflight=_parse_positive_int(
+                "WORKER_PYTHON_EXEC_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT
+            ),
+            terminal_exec_max_inflight=_parse_positive_int(
+                "WORKER_TERMINAL_EXEC_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT
+            ),
+            terminal_resource_max_inflight=_parse_positive_int(
+                "WORKER_TERMINAL_RESOURCE_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT
+            ),
             terminal_lease_min_sec=_parse_positive_int("WORKER_TERMINAL_LEASE_MIN_SEC", 60),
             terminal_lease_max_sec=_parse_positive_int("WORKER_TERMINAL_LEASE_MAX_SEC", 1800),
             terminal_lease_default_sec=_parse_positive_int("WORKER_TERMINAL_LEASE_DEFAULT_SEC", 60),
-            terminal_output_limit_bytes=_parse_positive_int("WORKER_TERMINAL_OUTPUT_LIMIT_BYTES", 1048576),
-            terminal_export_max_bytes=_parse_non_negative_int("WORKER_TERMINAL_EXPORT_MAX_BYTES", 0),
+            terminal_output_limit_bytes=_parse_positive_int(
+                "WORKER_TERMINAL_OUTPUT_LIMIT_BYTES", 1048576
+            ),
+            terminal_export_max_bytes=_parse_non_negative_int(
+                "WORKER_TERMINAL_EXPORT_MAX_BYTES", 0
+            ),
             log_level=_parse_log_level("WORKER_LOG_LEVEL", DEFAULT_LOG_LEVEL),
             log_format=_parse_log_format("WORKER_LOG_FORMAT", DEFAULT_LOG_FORMAT),
         )
@@ -87,7 +105,7 @@ def _parse_positive_int(key: str, default: int) -> int:
         value = int(os.environ.get(key, ""))
         if value > 0:
             return value
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         pass
     return default
 
@@ -97,7 +115,7 @@ def _parse_non_negative_int(key: str, default: int) -> int:
         value = int(os.environ.get(key, ""))
         if value >= 0:
             return value
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         pass
     return default
 
@@ -107,7 +125,7 @@ def _parse_percent(key: str, default: int) -> int:
         value = int(os.environ.get(key, ""))
         if 0 <= value <= 100:
             return value
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         pass
     return default
 

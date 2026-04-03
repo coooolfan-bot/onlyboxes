@@ -69,7 +69,7 @@ class TerminalExecError(Exception):
 
 
 class _TerminalSession:
-    __slots__ = ("session_id", "sandbox", "lease_expires_at", "busy")
+    __slots__ = ("busy", "lease_expires_at", "sandbox", "session_id")
 
     def __init__(self, session_id: str, sandbox: Sandbox, lease_expires_at: float):
         self.session_id = session_id
@@ -155,9 +155,7 @@ class TerminalSessionManager:
 
             if session is None:
                 if not create_if_missing:
-                    raise TerminalExecError(
-                        "session_not_found", "session not found"
-                    )
+                    raise TerminalExecError("session_not_found", "session not found")
                 # Create sandbox outside lock to avoid blocking other operations
                 sandbox = self._create_sandbox()
                 try:
@@ -182,9 +180,7 @@ class TerminalSessionManager:
             remaining_ms = deadline_unix_ms - int(time.time() * 1000)
             if remaining_ms <= 0:
                 self._destroy_session(session_id)
-                raise TerminalExecError(
-                    "deadline_exceeded", "command deadline exceeded"
-                )
+                raise TerminalExecError("deadline_exceeded", "command deadline exceeded")
             cmd_timeout = remaining_ms / 1000.0
 
         try:
@@ -192,9 +188,7 @@ class TerminalSessionManager:
         except SandboxException as exc:
             if "not found" in str(exc).lower() or "404" in str(exc):
                 self._destroy_session(session_id)
-                raise TerminalExecError(
-                    "session_not_found", "session not found"
-                ) from exc
+                raise TerminalExecError("session_not_found", "session not found") from exc
             self._mark_session_idle(session_id)
             raise TerminalExecError(
                 "execution_failed", f"terminal execution failed: {exc}"
@@ -202,29 +196,21 @@ class TerminalSessionManager:
         except Exception as exc:
             if "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower():
                 self._destroy_session(session_id)
-                raise TerminalExecError(
-                    "deadline_exceeded", "command deadline exceeded"
-                ) from exc
+                raise TerminalExecError("deadline_exceeded", "command deadline exceeded") from exc
             self._mark_session_idle(session_id)
             raise TerminalExecError(
                 "execution_failed", f"terminal execution failed: {exc}"
             ) from exc
 
-        stdout, stdout_truncated = _truncate_by_bytes(
-            result.stdout or "", self._output_limit_bytes
-        )
-        stderr, stderr_truncated = _truncate_by_bytes(
-            result.stderr or "", self._output_limit_bytes
-        )
+        stdout, stdout_truncated = _truncate_by_bytes(result.stdout or "", self._output_limit_bytes)
+        stderr, stderr_truncated = _truncate_by_bytes(result.stderr or "", self._output_limit_bytes)
 
         lease_expires_at, ok = self._mark_session_idle(session_id)
         if not ok:
             raise TerminalExecError("session_not_found", "session not found")
 
         # Convert monotonic lease to wall-clock unix ms
-        lease_wall_ms = int(
-            (time.time() + (lease_expires_at - time.monotonic())) * 1000
-        )
+        lease_wall_ms = int((time.time() + (lease_expires_at - time.monotonic())) * 1000)
 
         return {
             "session_id": session_id,
@@ -321,9 +307,7 @@ class TerminalSessionManager:
                 timeout=self._e2b_timeout_sec,
             )
         except Exception as exc:
-            raise TerminalExecError(
-                "execution_failed", f"failed to create sandbox: {exc}"
-            ) from exc
+            raise TerminalExecError("execution_failed", f"failed to create sandbox: {exc}") from exc
 
     def _acquire_session(self, session_id: str) -> _TerminalSession:
         with self._lock:
@@ -404,7 +388,9 @@ class TerminalSessionManager:
             + shlex.quote(file_path)
         )
         try:
-            result = sandbox.commands.run(command, timeout=_resolve_request_timeout(deadline_unix_ms))
+            result = sandbox.commands.run(
+                command, timeout=_resolve_request_timeout(deadline_unix_ms)
+            )
         except SandboxNotFoundException as exc:
             raise TerminalExecError("session_not_found", "session not found") from exc
         except TimeoutException as exc:
@@ -435,7 +421,9 @@ class TerminalSessionManager:
 
         decoded = _try_decode_json_object(result.stdout or "")
         if not decoded:
-            raise TerminalExecError("execution_failed", "invalid terminalResource result: empty output")
+            raise TerminalExecError(
+                "execution_failed", "invalid terminalResource result: empty output"
+            )
         if decoded.get("error"):
             raise TerminalExecError(
                 str(decoded["error"]),
@@ -516,9 +504,7 @@ class TerminalSessionManager:
                     del self._sessions[sid]
 
         for session in expired:
-            logger.info(
-                "janitor: cleaning expired session", session_id=session.session_id
-            )
+            logger.info("janitor: cleaning expired session", session_id=session.session_id)
             _kill_sandbox_safe(session.sandbox, session.session_id)
 
 
@@ -526,9 +512,7 @@ def _kill_sandbox_safe(sandbox: Sandbox, session_id: str) -> None:
     try:
         sandbox.kill()
     except Exception as exc:
-        logger.warning(
-            "failed to kill sandbox", session_id=session_id, error=str(exc)
-        )
+        logger.warning("failed to kill sandbox", session_id=session_id, error=str(exc))
 
 
 def _truncate_by_bytes(value: str, max_bytes: int) -> tuple[str, bool]:
@@ -620,7 +604,10 @@ def _is_sandbox_missing_error(exc: Exception) -> bool:
 
 
 def _is_file_not_found_error(exc: Exception) -> bool:
-    return any(isinstance(candidate, (FileNotFoundException, FileNotFoundError)) for candidate in _iter_exception_chain(exc))
+    return any(
+        isinstance(candidate, (FileNotFoundException, FileNotFoundError))
+        for candidate in _iter_exception_chain(exc)
+    )
 
 
 def _is_path_is_directory_error(exc: Exception) -> bool:
@@ -641,7 +628,7 @@ def _translate_terminal_resource_access_error(exc: Exception, operation: str) ->
 
 def _iter_exception_chain(exc: Exception):
     seen: set[int] = set()
-    current: Exception | None = exc
+    current: BaseException | None = exc
     while current is not None and id(current) not in seen:
         yield current
         seen.add(id(current))
@@ -661,7 +648,9 @@ def _upload_to_signed_url(
     request = urllib.request.Request(signed_url, data=data, method="PUT")
     request.add_header("Content-Length", str(content_length))
     try:
-        with urllib.request.urlopen(request, timeout=_resolve_request_timeout(deadline_unix_ms)) as response:
+        with urllib.request.urlopen(
+            request, timeout=_resolve_request_timeout(deadline_unix_ms)
+        ) as response:
             status = getattr(response, "status", response.getcode())
             if status < 200 or status >= 300:
                 body = response.read(1024).decode("utf-8", errors="replace").strip()

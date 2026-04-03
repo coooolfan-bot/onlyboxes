@@ -1,16 +1,19 @@
 """gRPC session loop: connect -> hello -> heartbeat + dispatch handling."""
 
 import asyncio
-import json
 import random
 import time
-import structlog
+from typing import TYPE_CHECKING
 
 import grpc
-from worker_bridge_e2b.config import Config
+import structlog
+
+from worker_bridge_e2b import executor
 from worker_bridge_e2b.proto.registry.v1 import registry_pb2 as pb
 from worker_bridge_e2b.proto.registry.v1 import registry_pb2_grpc as pb_grpc
-from worker_bridge_e2b import executor
+
+if TYPE_CHECKING:
+    from worker_bridge_e2b.config import Config
 
 logger = structlog.get_logger()
 
@@ -47,7 +50,7 @@ async def run(cfg: Config, stop_event: asyncio.Event) -> None:
                 jitter = random.uniform(0, reconnect_delay * 0.2)
                 await asyncio.wait_for(stop_event.wait(), timeout=reconnect_delay + jitter)
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             reconnect_delay = min(reconnect_delay * 2, MAX_RECONNECT_DELAY_SEC)
     finally:
@@ -68,7 +71,7 @@ async def _run_session(cfg: Config, stop_event: asyncio.Event) -> None:
                 try:
                     req = await asyncio.wait_for(request_queue.get(), timeout=1.0)
                     yield req
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
 
         stream = stub.Connect(request_iter())
@@ -85,9 +88,10 @@ async def _run_session(cfg: Config, stop_event: asyncio.Event) -> None:
                 elif which == "heartbeat_ack":
                     pass
                 elif which == "command_dispatch":
-                    asyncio.create_task(
+                    task = asyncio.create_task(
                         _handle_dispatch(response.command_dispatch, request_queue, cfg)
                     )
+                    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
         finally:
             heartbeat_task.cancel()
 
@@ -133,11 +137,17 @@ async def _handle_dispatch(
             )
         elif capability == TERMINAL_EXEC_CAPABILITY:
             result_payload, err_code, err_msg = await loop.run_in_executor(
-                None, executor.execute_terminal_exec, dispatch.payload_json, dispatch.deadline_unix_ms
+                None,
+                executor.execute_terminal_exec,
+                dispatch.payload_json,
+                dispatch.deadline_unix_ms,
             )
         elif capability == TERMINAL_RESOURCE_CAPABILITY:
             result_payload, err_code, err_msg = await loop.run_in_executor(
-                None, executor.execute_terminal_resource, dispatch.payload_json, dispatch.deadline_unix_ms
+                None,
+                executor.execute_terminal_resource,
+                dispatch.payload_json,
+                dispatch.deadline_unix_ms,
             )
         else:
             err_code = "unsupported_capability"
@@ -173,7 +183,9 @@ def _build_hello(cfg: Config) -> pb.ConnectRequest:
         pb.CapabilityDeclaration(name="echo", max_inflight=cfg.echo_max_inflight),
         pb.CapabilityDeclaration(name="pythonExec", max_inflight=cfg.python_exec_max_inflight),
         pb.CapabilityDeclaration(name="terminalExec", max_inflight=cfg.terminal_exec_max_inflight),
-        pb.CapabilityDeclaration(name="terminalResource", max_inflight=cfg.terminal_resource_max_inflight),
+        pb.CapabilityDeclaration(
+            name="terminalResource", max_inflight=cfg.terminal_resource_max_inflight
+        ),
     ]
     hello = pb.ConnectHello(
         node_id=cfg.worker_id,

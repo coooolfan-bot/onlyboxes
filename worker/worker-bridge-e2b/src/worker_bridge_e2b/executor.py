@@ -5,14 +5,18 @@ and returns (result_json_bytes, error_code, error_message).
 error_code/error_message are empty strings on success.
 """
 
+import contextlib
 import json
 import time
+from typing import TYPE_CHECKING
 
 import structlog
 from e2b import Sandbox, SandboxException
 
-from worker_bridge_e2b.config import Config
 from worker_bridge_e2b.session_manager import TerminalExecError, TerminalSessionManager
+
+if TYPE_CHECKING:
+    from worker_bridge_e2b.config import Config
 
 logger = structlog.get_logger()
 
@@ -76,11 +80,13 @@ def execute_python_exec(payload: bytes, deadline_unix_ms: int) -> ExecutorResult
         sandbox.files.write("/tmp/code.py", code)
         result = sandbox.commands.run("uv run /tmp/code.py", timeout=cmd_timeout)
 
-        result_json = json.dumps({
-            "output": result.stdout or "",
-            "stderr": result.stderr or "",
-            "exit_code": result.exit_code,
-        }).encode()
+        result_json = json.dumps(
+            {
+                "output": result.stdout or "",
+                "stderr": result.stderr or "",
+                "exit_code": result.exit_code,
+            }
+        ).encode()
         return result_json, "", ""
 
     except SandboxException as exc:
@@ -91,10 +97,8 @@ def execute_python_exec(payload: bytes, deadline_unix_ms: int) -> ExecutorResult
         return b"{}", "execution_failed", f"pythonExec execution failed: {exc}"
     finally:
         if sandbox is not None:
-            try:
+            with contextlib.suppress(Exception):
                 sandbox.kill()
-            except Exception:
-                pass
 
 
 def execute_terminal_exec(payload: bytes, deadline_unix_ms: int) -> ExecutorResult:

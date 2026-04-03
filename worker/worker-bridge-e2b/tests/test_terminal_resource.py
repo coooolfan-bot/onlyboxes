@@ -6,20 +6,20 @@ from types import SimpleNamespace
 import pytest
 from e2b import FileNotFoundException, SandboxNotFoundException
 
+import worker_bridge_e2b.session_manager as session_manager_module
 from worker_bridge_e2b import executor, runner
 from worker_bridge_e2b.config import Config
 from worker_bridge_e2b.session_manager import (
-    TERMINAL_RESOURCE_CODE_FILE_NOT_FOUND,
-    TERMINAL_RESOURCE_CODE_FILE_TOO_LARGE,
-    TERMINAL_RESOURCE_CODE_PATH_IS_DIR,
     TERMINAL_RESOURCE_ACTION_EXPORT,
     TERMINAL_RESOURCE_ACTION_READ,
     TERMINAL_RESOURCE_ACTION_VALIDATE,
+    TERMINAL_RESOURCE_CODE_FILE_NOT_FOUND,
+    TERMINAL_RESOURCE_CODE_FILE_TOO_LARGE,
+    TERMINAL_RESOURCE_CODE_PATH_IS_DIR,
     TerminalExecError,
     TerminalSessionManager,
     _TerminalSession,
 )
-import worker_bridge_e2b.session_manager as session_manager_module
 
 
 class FakeCommandResult:
@@ -109,7 +109,9 @@ def make_config() -> Config:
     )
 
 
-def register_session(manager: TerminalSessionManager, session_id: str, sandbox: FakeSandbox, busy: bool = False):
+def register_session(
+    manager: TerminalSessionManager, session_id: str, sandbox: FakeSandbox, busy: bool = False
+):
     session = _TerminalSession(session_id, sandbox, time.monotonic() + 60)
     session.busy = busy
     with manager._lock:
@@ -163,7 +165,9 @@ def test_execute_terminal_resource_success(restore_executor_state):
         ),
     ],
 )
-def test_execute_terminal_resource_invalid_payloads(restore_executor_state, payload: bytes, message: str):
+def test_execute_terminal_resource_invalid_payloads(
+    restore_executor_state, payload: bytes, message: str
+):
     executor._session_manager = SimpleNamespace(resolve_resource=lambda **kwargs: None)
 
     result_payload, err_code, err_message = executor.execute_terminal_resource(payload, 0)
@@ -212,7 +216,9 @@ def test_terminal_session_manager_validate_and_read(manager: TerminalSessionMana
     }
 
 
-def test_terminal_session_manager_export(manager: TerminalSessionManager, monkeypatch: pytest.MonkeyPatch):
+def test_terminal_session_manager_export(
+    manager: TerminalSessionManager, monkeypatch: pytest.MonkeyPatch
+):
     uploaded = {}
 
     def fake_upload(signed_url: str, content, content_length: int, deadline_unix_ms: int):
@@ -256,8 +262,18 @@ def test_terminal_session_manager_export(manager: TerminalSessionManager, monkey
 @pytest.mark.parametrize(
     ("stdout", "exit_code", "code", "message"),
     [
-        ('{"error":"file_not_found","message":"file not found"}', 10, TERMINAL_RESOURCE_CODE_FILE_NOT_FOUND, "file not found"),
-        ('{"error":"path_is_directory","message":"path is directory"}', 11, TERMINAL_RESOURCE_CODE_PATH_IS_DIR, "path is directory"),
+        (
+            '{"error":"file_not_found","message":"file not found"}',
+            10,
+            TERMINAL_RESOURCE_CODE_FILE_NOT_FOUND,
+            "file not found",
+        ),
+        (
+            '{"error":"path_is_directory","message":"path is directory"}',
+            11,
+            TERMINAL_RESOURCE_CODE_PATH_IS_DIR,
+            "path is directory",
+        ),
     ],
 )
 def test_terminal_session_manager_domain_errors(
@@ -267,7 +283,9 @@ def test_terminal_session_manager_domain_errors(
     code: str,
     message: str,
 ):
-    sandbox = FakeSandbox(run_fn=lambda command, timeout: FakeCommandResult(stdout=stdout, exit_code=exit_code))
+    sandbox = FakeSandbox(
+        run_fn=lambda command, timeout: FakeCommandResult(stdout=stdout, exit_code=exit_code)
+    )
     register_session(manager, "sess-err", sandbox)
 
     with pytest.raises(TerminalExecError) as exc_info:
@@ -310,7 +328,9 @@ def test_terminal_session_manager_oversized_file(
             run_fn=lambda command, timeout: FakeCommandResult(
                 stdout='{"mime_type":"application/octet-stream","size_bytes":10}'
             ),
-            read_fn=lambda path, format, request_timeout: pytest.fail("files.read should not be called"),
+            read_fn=lambda path, format, request_timeout: pytest.fail(
+                "files.read should not be called"
+            ),
         )
         register_session(manager, "sess-large", sandbox)
 
@@ -340,7 +360,11 @@ def test_terminal_session_manager_missing_and_busy_sessions(manager: TerminalSes
         )
     assert missing_exc.value.code == "session_not_found"
 
-    sandbox = FakeSandbox(run_fn=lambda command, timeout: FakeCommandResult(stdout='{"mime_type":"text/plain","size_bytes":5}'))
+    sandbox = FakeSandbox(
+        run_fn=lambda command, timeout: FakeCommandResult(
+            stdout='{"mime_type":"text/plain","size_bytes":5}'
+        )
+    )
     register_session(manager, "busy", sandbox, busy=True)
 
     with pytest.raises(TerminalExecError) as busy_exc:
@@ -355,7 +379,9 @@ def test_terminal_session_manager_missing_and_busy_sessions(manager: TerminalSes
 
 
 def test_terminal_session_manager_timeout_destroys_session(manager: TerminalSessionManager):
-    sandbox = FakeSandbox(run_fn=lambda command, timeout: (_ for _ in ()).throw(TimeoutError("timeout")))
+    sandbox = FakeSandbox(
+        run_fn=lambda command, timeout: (_ for _ in ()).throw(TimeoutError("timeout"))
+    )
     session = register_session(manager, "sess-timeout", sandbox)
 
     with pytest.raises(TerminalExecError) as exc_info:
@@ -491,12 +517,16 @@ def test_terminal_session_manager_upload_not_found_does_not_destroy_session(
         assert manager._sessions["sess-upload-404"].busy is False
 
 
-def test_terminal_session_manager_file_not_found_during_read_keeps_session(manager: TerminalSessionManager):
+def test_terminal_session_manager_file_not_found_during_read_keeps_session(
+    manager: TerminalSessionManager,
+):
     sandbox = FakeSandbox(
         run_fn=lambda command, timeout: FakeCommandResult(
             stdout='{"mime_type":"text/plain","size_bytes":5}'
         ),
-        read_fn=lambda path, format, request_timeout: (_ for _ in ()).throw(FileNotFoundException("file not found")),
+        read_fn=lambda path, format, request_timeout: (_ for _ in ()).throw(
+            FileNotFoundException("file not found")
+        ),
     )
     session = register_session(manager, "sess-read-missing", sandbox)
 
@@ -516,12 +546,16 @@ def test_terminal_session_manager_file_not_found_during_read_keeps_session(manag
         assert manager._sessions["sess-read-missing"].busy is False
 
 
-def test_terminal_session_manager_sandbox_missing_during_read_destroys_session(manager: TerminalSessionManager):
+def test_terminal_session_manager_sandbox_missing_during_read_destroys_session(
+    manager: TerminalSessionManager,
+):
     sandbox = FakeSandbox(
         run_fn=lambda command, timeout: FakeCommandResult(
             stdout='{"mime_type":"text/plain","size_bytes":5}'
         ),
-        read_fn=lambda path, format, request_timeout: (_ for _ in ()).throw(SandboxNotFoundException("sandbox not found")),
+        read_fn=lambda path, format, request_timeout: (_ for _ in ()).throw(
+            SandboxNotFoundException("sandbox not found")
+        ),
     )
     session = register_session(manager, "sess-read-sandbox-missing", sandbox)
 

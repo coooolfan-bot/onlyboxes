@@ -1,6 +1,7 @@
 import asyncio
 import signal
 import sys
+
 import structlog
 
 from worker_bridge_e2b import logging as wlogging
