@@ -8,36 +8,24 @@ export const meta = {
 
 # E2B Bridge Runtime
 
-`worker-bridge-e2b` bridges Onlyboxes to the [e2b](https://e2b.dev/) cloud sandbox platform. It connects to the console via gRPC and exposes e2b sandboxes as a standard worker supporting echo, pythonExec, and terminalExec.
+`worker-bridge-e2b` bridges Onlyboxes to the [E2B](https://e2b.dev/) cloud sandbox platform. It connects to the console via gRPC and exposes E2B sandbox services as a standard worker with capabilities aligned to `worker-docker`
 
 ## When to use
 
-- You want cloud-based sandboxes without managing infrastructure
+- You accept using public cloud infrastructure
 - You need rapid scaling without local resource constraints
-- You prefer pay-per-use over self-hosted compute
-- You already have e2b templates configured
 
 ## How it works
 
 1. The worker connects to the control node over gRPC.
-2. For `pythonExec`, it creates a fresh e2b sandbox, writes code to `/tmp/code.py`, executes it via `uv run /tmp/code.py` (supports PEP 723 inline dependencies), and destroys the sandbox.
-3. For `terminalExec`, it creates persistent e2b sandbox sessions with lease-based TTL. Sessions are reused for subsequent commands with the same `session_id` and cleaned up automatically when idle.
+2. Translates requests from the control node into E2B specifications
+3. Sends requests to the E2B platform and receives responses
 4. Output is streamed back through the control plane.
 
 ## Prerequisites
 
-- An e2b account with API key
-- Pre-configured e2b templates for Python and terminal execution
+- An E2B account with API key
 - Network access to the control node gRPC endpoint
-
-### Template requirements
-
-**Python execution template** (`E2B_PYTHON_EXEC_TEMPLATE`):
-- Must have `uv` pre-installed (recommended base: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`)
-
-**Terminal execution template** (`E2B_TERMINAL_EXEC_TEMPLATE`):
-- Should include general-purpose tools your terminal sessions need
-- Can be a custom template with pre-installed packages
 
 ## Starting the worker
 
@@ -93,8 +81,8 @@ Set `WORKER_CONSOLE_INSECURE=true` when connecting without TLS.
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `E2B_PYTHON_EXEC_TEMPLATE` | No | `base` | Sandbox template for pythonExec |
-| `E2B_TERMINAL_EXEC_TEMPLATE` | No | `base` | Sandbox template for terminalExec |
+| `E2B_PYTHON_EXEC_TEMPLATE` | No | `coolfan1024/python-exec` | Sandbox template for pythonExec |
+| `E2B_TERMINAL_EXEC_TEMPLATE` | No | `coolfan1024/terminal-exec` | Sandbox template for terminalExec |
 | `E2B_SANDBOX_TIMEOUT_SEC` | No | `300` | Sandbox lifetime in seconds |
 
 ### Concurrency
@@ -130,11 +118,9 @@ Set `WORKER_CONSOLE_INSECURE=true` when connecting without TLS.
 
 ## Cost considerations
 
-Unlike self-hosted workers, e2b charges based on sandbox usage. Monitor your e2b dashboard to track costs. Consider:
+Unlike self-hosted workers, E2B is a public cloud service that charges based on sandbox usage.
 
-- Short-lived `pythonExec` sandboxes are created and destroyed per execution
-- Long-running `terminalExec` sessions persist until lease expiration
-- Adjust lease timeouts to balance session reuse vs. idle costs
+Always monitor your [E2B dashboard](https://e2b.dev/dashboard) to track costs.
 
 ## Related docs
 
