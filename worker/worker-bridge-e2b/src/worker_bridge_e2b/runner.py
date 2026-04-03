@@ -20,6 +20,7 @@ MAX_RECONNECT_DELAY_SEC = 15.0
 ECHO_CAPABILITY = "echo"
 PYTHON_EXEC_CAPABILITY = "pythonexec"
 TERMINAL_EXEC_CAPABILITY = "terminalexec"
+TERMINAL_RESOURCE_CAPABILITY = "terminalresource"
 
 
 async def run(cfg: Config, stop_event: asyncio.Event) -> None:
@@ -134,6 +135,10 @@ async def _handle_dispatch(
             result_payload, err_code, err_msg = await loop.run_in_executor(
                 None, executor.execute_terminal_exec, dispatch.payload_json, dispatch.deadline_unix_ms
             )
+        elif capability == TERMINAL_RESOURCE_CAPABILITY:
+            result_payload, err_code, err_msg = await loop.run_in_executor(
+                None, executor.execute_terminal_resource, dispatch.payload_json, dispatch.deadline_unix_ms
+            )
         else:
             err_code = "unsupported_capability"
             err_msg = f"capability not supported: {capability}"
@@ -168,6 +173,7 @@ def _build_hello(cfg: Config) -> pb.ConnectRequest:
         pb.CapabilityDeclaration(name="echo", max_inflight=cfg.echo_max_inflight),
         pb.CapabilityDeclaration(name="pythonExec", max_inflight=cfg.python_exec_max_inflight),
         pb.CapabilityDeclaration(name="terminalExec", max_inflight=cfg.terminal_exec_max_inflight),
+        pb.CapabilityDeclaration(name="terminalResource", max_inflight=cfg.terminal_resource_max_inflight),
     ]
     hello = pb.ConnectHello(
         node_id=cfg.worker_id,

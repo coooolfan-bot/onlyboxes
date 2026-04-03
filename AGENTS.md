@@ -13,6 +13,7 @@ Onlyboxes 是一个面向个人与小型团队的代码执行沙箱平台解决�
     - `worker-docker`：以 Docker 容器为执行后端
     - `worker-boxlite`：以 boxlite 为执行后端
     - `worker-sys`：以操作系统进程作为执行后端，用于直接控制真实设备
+    - `worker-bridge-e2b`：以 e2b 为执行后端，worker 仅实现了一层 bridge。使用 uv 作为包管理器
 - **前端**：于`web`目录下，Vue, TypeScript, Vite, Pinia, Tailwind CSS。
 
 

@@ -29,10 +29,12 @@ class Config:
     echo_max_inflight: int
     python_exec_max_inflight: int
     terminal_exec_max_inflight: int
+    terminal_resource_max_inflight: int
     terminal_lease_min_sec: int
     terminal_lease_max_sec: int
     terminal_lease_default_sec: int
     terminal_output_limit_bytes: int
+    terminal_export_max_bytes: int
     log_level: str
     log_format: str
 
@@ -56,10 +58,12 @@ class Config:
             echo_max_inflight=_parse_positive_int("WORKER_ECHO_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
             python_exec_max_inflight=_parse_positive_int("WORKER_PYTHON_EXEC_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
             terminal_exec_max_inflight=_parse_positive_int("WORKER_TERMINAL_EXEC_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
+            terminal_resource_max_inflight=_parse_positive_int("WORKER_TERMINAL_RESOURCE_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT),
             terminal_lease_min_sec=_parse_positive_int("WORKER_TERMINAL_LEASE_MIN_SEC", 60),
             terminal_lease_max_sec=_parse_positive_int("WORKER_TERMINAL_LEASE_MAX_SEC", 1800),
             terminal_lease_default_sec=_parse_positive_int("WORKER_TERMINAL_LEASE_DEFAULT_SEC", 60),
             terminal_output_limit_bytes=_parse_positive_int("WORKER_TERMINAL_OUTPUT_LIMIT_BYTES", 1048576),
+            terminal_export_max_bytes=_parse_non_negative_int("WORKER_TERMINAL_EXPORT_MAX_BYTES", 0),
             log_level=_parse_log_level("WORKER_LOG_LEVEL", DEFAULT_LOG_LEVEL),
             log_format=_parse_log_format("WORKER_LOG_FORMAT", DEFAULT_LOG_FORMAT),
         )
@@ -82,6 +86,16 @@ def _parse_positive_int(key: str, default: int) -> int:
     try:
         value = int(os.environ.get(key, ""))
         if value > 0:
+            return value
+    except (ValueError, TypeError):
+        pass
+    return default
+
+
+def _parse_non_negative_int(key: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(key, ""))
+        if value >= 0:
             return value
     except (ValueError, TypeError):
         pass
