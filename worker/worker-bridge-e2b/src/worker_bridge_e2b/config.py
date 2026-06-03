@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass
 
@@ -18,6 +20,7 @@ class Config:
     worker_secret: str
     heartbeat_interval_sec: int
     heartbeat_jitter_pct: int
+    call_timeout_sec: int
     node_name: str
     executor_kind: str
     version: str
@@ -40,16 +43,20 @@ class Config:
 
     @classmethod
     def load(cls) -> Config:
+        heartbeat_interval_sec = _parse_positive_int(
+            "WORKER_HEARTBEAT_INTERVAL_SEC", DEFAULT_HEARTBEAT_INTERVAL_SEC
+        )
         cfg = cls(
             console_grpc_target=_get_env("WORKER_CONSOLE_GRPC_TARGET", DEFAULT_CONSOLE_TARGET),
             console_tls=os.environ.get("WORKER_CONSOLE_INSECURE", "") != "true",
             worker_id=os.environ.get("WORKER_ID", "").strip(),
             worker_secret=os.environ.get("WORKER_SECRET", "").strip(),
-            heartbeat_interval_sec=_parse_positive_int(
-                "WORKER_HEARTBEAT_INTERVAL_SEC", DEFAULT_HEARTBEAT_INTERVAL_SEC
-            ),
+            heartbeat_interval_sec=heartbeat_interval_sec,
             heartbeat_jitter_pct=_parse_percent(
                 "WORKER_HEARTBEAT_JITTER_PCT", DEFAULT_HEARTBEAT_JITTER_PCT
+            ),
+            call_timeout_sec=_parse_positive_int(
+                "WORKER_CALL_TIMEOUT_SEC", _default_call_timeout_sec(heartbeat_interval_sec)
             ),
             node_name=os.environ.get("WORKER_NODE_NAME", "").strip(),
             executor_kind=DEFAULT_EXECUTOR_KIND,
@@ -105,7 +112,7 @@ def _parse_positive_int(key: str, default: int) -> int:
         value = int(os.environ.get(key, ""))
         if value > 0:
             return value
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         pass
     return default
 
@@ -115,7 +122,7 @@ def _parse_non_negative_int(key: str, default: int) -> int:
         value = int(os.environ.get(key, ""))
         if value >= 0:
             return value
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         pass
     return default
 
@@ -125,7 +132,7 @@ def _parse_percent(key: str, default: int) -> int:
         value = int(os.environ.get(key, ""))
         if 0 <= value <= 100:
             return value
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         pass
     return default
 
@@ -155,3 +162,10 @@ def _parse_labels(raw: str) -> dict[str, str]:
         if key:
             labels[key] = value.strip()
     return labels
+
+
+def _default_call_timeout_sec(heartbeat_interval_sec: int) -> int:
+    heartbeat = (
+        heartbeat_interval_sec if heartbeat_interval_sec > 0 else DEFAULT_HEARTBEAT_INTERVAL_SEC
+    )
+    return (heartbeat * 5 + 1) // 2

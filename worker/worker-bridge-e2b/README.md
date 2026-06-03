@@ -4,12 +4,13 @@ worker-bridge-e2b
 Onlyboxes worker bridge for e2b sandboxes.
 
 Connects to the Onlyboxes console via gRPC and exposes e2b sandboxes
-as a standard worker supporting echo, pythonExec, and terminalExec.
+as a standard worker supporting echo, pythonExec, terminalExec, and
+terminalResource.
 
 Setup
 -----
 
-    uv sync
+    uv sync   # requires Python 3.12+
     bash scripts/gen_proto.sh   # regenerate protobuf stubs
 
 Run
@@ -53,6 +54,12 @@ Sandbox template is configured via `E2B_TERMINAL_EXEC_TEMPLATE`. This
 can be a general-purpose template with the tools your terminal sessions
 need.
 
+### terminalResource
+
+Validates, reads, or exports files from an existing terminalExec session.
+`read` returns base64 content inline. `export` uploads the file to the
+provided signed URL and forwards filtered upload headers from the console.
+
 Environment Variables
 ---------------------
 
@@ -66,6 +73,7 @@ Environment Variables
 
     WORKER_CONSOLE_GRPC_TARGET   console gRPC address (default: 127.0.0.1:50051)
     WORKER_CONSOLE_INSECURE      set "true" to disable TLS (default: TLS enabled)
+    WORKER_CALL_TIMEOUT_SEC      gRPC call/heartbeat ack timeout (default: ceil(2.5 * heartbeat))
 
 ### Worker identity
 
@@ -75,8 +83,8 @@ Environment Variables
 
 ### e2b sandbox
 
-    E2B_PYTHON_EXEC_TEMPLATE     sandbox template for pythonExec (default: base)
-    E2B_TERMINAL_EXEC_TEMPLATE   sandbox template for terminalExec (default: base)
+    E2B_PYTHON_EXEC_TEMPLATE     sandbox template for pythonExec (default: coolfan1024/python-exec)
+    E2B_TERMINAL_EXEC_TEMPLATE   sandbox template for terminalExec (default: coolfan1024/terminal-exec)
     E2B_SANDBOX_TIMEOUT_SEC      sandbox lifetime in seconds (default: 300)
 
 ### Concurrency
@@ -84,6 +92,7 @@ Environment Variables
     WORKER_ECHO_MAX_INFLIGHT              (default: 4)
     WORKER_PYTHON_EXEC_MAX_INFLIGHT       (default: 4)
     WORKER_TERMINAL_EXEC_MAX_INFLIGHT     (default: 4)
+    WORKER_TERMINAL_RESOURCE_MAX_INFLIGHT (default: 4)
 
 ### Terminal session leases
 
@@ -91,6 +100,7 @@ Environment Variables
     WORKER_TERMINAL_LEASE_MAX_SEC         (default: 1800)
     WORKER_TERMINAL_LEASE_DEFAULT_SEC     (default: 60)
     WORKER_TERMINAL_OUTPUT_LIMIT_BYTES    (default: 1048576)
+    WORKER_TERMINAL_EXPORT_MAX_BYTES      (default: 0, unlimited)
 
 ### Logging
 

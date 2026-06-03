@@ -324,7 +324,7 @@ Token 按账号隔离；每个账号只能管理自己的 token。
 
 Worker 类型：
 
-- `normal`（对应 `worker-docker`）
+- `normal`（共享沙箱 worker；当前可由 `worker-docker`、`worker-boxlite` 或 `worker-bridge-e2b` 实现）
 - `worker-sys`（对应 `worker-sys`）
 
 权限矩阵：

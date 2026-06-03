@@ -2,7 +2,7 @@
 name = "worker-bridge-e2b"
 version = "0.1.0"
 description = "Onlyboxes worker bridge for e2b sandboxes"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "e2b>=2.19.0",
     "e2b-code-interpreter>=2.6.0",
@@ -36,7 +36,7 @@ dev-dependencies = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py312"
 extend-exclude = ["**/proto/**/*_pb2.py", "**/proto/**/*_pb2_grpc.py"]
 
 [tool.ruff.lint]

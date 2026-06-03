@@ -1,6 +1,9 @@
 """gRPC session loop: connect -> hello -> heartbeat + dispatch handling."""
 
+from __future__ import annotations
+
 import asyncio
+import contextlib
 import random
 import time
 from typing import TYPE_CHECKING
@@ -19,11 +22,17 @@ logger = structlog.get_logger()
 
 INITIAL_RECONNECT_DELAY_SEC = 1.0
 MAX_RECONNECT_DELAY_SEC = 15.0
+REQUEST_QUEUE_SIZE = 64
+HEARTBEAT_ACK_QUEUE_SIZE = 16
 
 ECHO_CAPABILITY = "echo"
 PYTHON_EXEC_CAPABILITY = "pythonexec"
 TERMINAL_EXEC_CAPABILITY = "terminalexec"
 TERMINAL_RESOURCE_CAPABILITY = "terminalresource"
+
+
+class SessionEndedError(Exception):
+    """Reconnectable registry session failure."""
 
 
 async def run(cfg: Config, stop_event: asyncio.Event) -> None:
@@ -58,63 +67,149 @@ async def run(cfg: Config, stop_event: asyncio.Event) -> None:
 
 
 async def _run_session(cfg: Config, stop_event: asyncio.Event) -> None:
-    creds = grpc.ssl_channel_credentials() if cfg.console_tls else grpc.local_channel_credentials()
-    async with grpc.aio.secure_channel(cfg.console_grpc_target, creds) as channel:
+    async with _open_channel(cfg) as channel:
         stub = pb_grpc.WorkerRegistryServiceStub(channel)
 
-        request_queue: asyncio.Queue[pb.ConnectRequest] = asyncio.Queue()
-        session_id: str | None = None
+        request_queue: asyncio.Queue[pb.ConnectRequest] = asyncio.Queue(maxsize=REQUEST_QUEUE_SIZE)
+        heartbeat_ack_queue: asyncio.Queue[pb.HeartbeatAck] = asyncio.Queue(
+            maxsize=HEARTBEAT_ACK_QUEUE_SIZE
+        )
+        dispatch_tasks: set[asyncio.Task] = set()
 
         async def request_iter():
             yield _build_hello(cfg)
             while not stop_event.is_set():
-                try:
-                    req = await asyncio.wait_for(request_queue.get(), timeout=1.0)
-                    yield req
-                except TimeoutError:
-                    continue
+                req = await request_queue.get()
+                yield req
 
         stream = stub.Connect(request_iter())
+        response_iter = stream.__aiter__()
+
+        first = await _read_response(response_iter, cfg.call_timeout_sec, "connect_ack")
+        if first.WhichOneof("payload") != "connect_ack":
+            raise SessionEndedError("unexpected first response frame")
+        session_id = first.connect_ack.session_id.strip()
+        if not session_id:
+            raise SessionEndedError("connect_ack.session_id is required")
+
+        heartbeat_interval_sec = _duration_from_server(
+            first.connect_ack.heartbeat_interval_sec, cfg.heartbeat_interval_sec
+        )
+        logger.info("connected", session_id=session_id)
 
         heartbeat_task = asyncio.create_task(
-            _heartbeat_loop(cfg, request_queue, stop_event, lambda: session_id)
+            _heartbeat_loop(
+                cfg,
+                request_queue,
+                heartbeat_ack_queue,
+                stop_event,
+                session_id,
+                heartbeat_interval_sec,
+            )
         )
+        response_task: asyncio.Task | None = None
         try:
-            async for response in stream:
+            while not stop_event.is_set():
+                response_task = asyncio.create_task(anext(response_iter))
+                done, _ = await asyncio.wait(
+                    {response_task, heartbeat_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if heartbeat_task in done:
+                    if stop_event.is_set():
+                        return
+                    await heartbeat_task
+                    raise SessionEndedError("heartbeat loop stopped")
+
+                try:
+                    response = response_task.result()
+                except StopAsyncIteration as exc:
+                    raise SessionEndedError("registry stream closed") from exc
+
                 which = response.WhichOneof("payload")
-                if which == "connect_ack":
-                    session_id = response.connect_ack.session_id
-                    logger.info("connected", session_id=session_id)
-                elif which == "heartbeat_ack":
-                    pass
+                if which == "heartbeat_ack":
+                    _enqueue_heartbeat_ack(heartbeat_ack_queue, response.heartbeat_ack)
                 elif which == "command_dispatch":
                     task = asyncio.create_task(
                         _handle_dispatch(response.command_dispatch, request_queue, cfg)
                     )
-                    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                    dispatch_tasks.add(task)
+                    task.add_done_callback(dispatch_tasks.discard)
+                    task.add_done_callback(_log_task_exception)
+                else:
+                    raise SessionEndedError("unexpected response frame")
         finally:
+            with contextlib.suppress(Exception):
+                stream.cancel()
             heartbeat_task.cancel()
+            if response_task is not None and not response_task.done():
+                response_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await response_task
+            for task in dispatch_tasks:
+                task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
+            if dispatch_tasks:
+                await asyncio.gather(*dispatch_tasks, return_exceptions=True)
+
+
+def _open_channel(cfg: Config):
+    if cfg.console_tls:
+        return grpc.aio.secure_channel(cfg.console_grpc_target, grpc.ssl_channel_credentials())
+    return grpc.aio.insecure_channel(cfg.console_grpc_target)
+
+
+async def _read_response(response_iter, timeout_sec: int, expected: str) -> pb.ConnectResponse:
+    try:
+        return await asyncio.wait_for(anext(response_iter), timeout=timeout_sec)
+    except StopAsyncIteration as exc:
+        raise SessionEndedError(f"stream closed before {expected}") from exc
+    except TimeoutError as exc:
+        raise SessionEndedError(f"receive {expected} timed out") from exc
 
 
 async def _heartbeat_loop(
     cfg: Config,
     queue: asyncio.Queue,
+    heartbeat_ack_queue: asyncio.Queue,
     stop_event: asyncio.Event,
-    get_session_id,
+    session_id: str,
+    heartbeat_interval_sec: int,
 ) -> None:
+    interval_sec = heartbeat_interval_sec
+    consecutive_ack_timeouts = 0
+
     while not stop_event.is_set():
-        interval = cfg.heartbeat_interval_sec
-        jitter = random.uniform(0, interval * cfg.heartbeat_jitter_pct / 100)
-        await asyncio.sleep(interval + jitter)
-        if stop_event.is_set():
-            break
+        try:
+            await asyncio.wait_for(
+                stop_event.wait(),
+                timeout=_jitter_duration_sec(interval_sec, cfg.heartbeat_jitter_pct),
+            )
+            return
+        except TimeoutError:
+            pass
+
         hb = pb.ConnectRequest(
             heartbeat=pb.HeartbeatFrame(
                 node_id=cfg.worker_id,
-                session_id=get_session_id() or "",
+                session_id=session_id,
+                active_session_count=executor.active_session_count(),
             )
         )
-        await queue.put(hb)
+        await _enqueue_request(queue, hb, cfg.call_timeout_sec)
+
+        try:
+            ack = await asyncio.wait_for(heartbeat_ack_queue.get(), timeout=cfg.call_timeout_sec)
+        except TimeoutError as exc:
+            consecutive_ack_timeouts += 1
+            if consecutive_ack_timeouts >= 2:
+                raise SessionEndedError("heartbeat ack deadline exceeded") from exc
+            continue
+
+        consecutive_ack_timeouts = 0
+        interval_sec = _duration_from_server(ack.heartbeat_interval_sec, interval_sec)
 
 
 async def _handle_dispatch(
@@ -174,7 +269,7 @@ async def _handle_dispatch(
             completed_unix_ms=int(time.time() * 1000),
         )
     )
-    await queue.put(result)
+    await _enqueue_request(queue, result, cfg.call_timeout_sec)
     log.info("command result sent")
 
 
@@ -197,3 +292,47 @@ def _build_hello(cfg: Config) -> pb.ConnectRequest:
     )
     hello.labels.update(cfg.labels)
     return pb.ConnectRequest(hello=hello)
+
+
+async def _enqueue_request(
+    queue: asyncio.Queue,
+    request: pb.ConnectRequest,
+    timeout_sec: int,
+) -> None:
+    await asyncio.wait_for(queue.put(request), timeout=timeout_sec)
+
+
+def _enqueue_heartbeat_ack(queue: asyncio.Queue, ack: pb.HeartbeatAck) -> None:
+    try:
+        queue.put_nowait(ack)
+        return
+    except asyncio.QueueFull:
+        with contextlib.suppress(asyncio.QueueEmpty):
+            queue.get_nowait()
+    queue.put_nowait(ack)
+
+
+def _duration_from_server(seconds: int, fallback: int) -> int:
+    if seconds > 0:
+        return seconds
+    if fallback > 0:
+        return fallback
+    return 5
+
+
+def _jitter_duration_sec(base_sec: int, jitter_pct: int) -> float:
+    base = float(base_sec if base_sec > 0 else 5)
+    pct = max(0, min(jitter_pct, 100))
+    if pct == 0:
+        return base
+    min_value = max(1.0, base * (100 - pct) / 100)
+    max_value = max(min_value, base * (100 + pct) / 100)
+    return random.uniform(min_value, max_value)
+
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("dispatch task failed", error=str(exc))

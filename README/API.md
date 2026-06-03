@@ -322,7 +322,7 @@ Always returns `410 Gone`:
 
 Worker types:
 
-- `normal` (maps to `worker-docker`)
+- `normal` (shared sandbox workers; currently implemented by `worker-docker`, `worker-boxlite`, or `worker-bridge-e2b`)
 - `worker-sys` (maps to `worker-sys`)
 
 Permission matrix:

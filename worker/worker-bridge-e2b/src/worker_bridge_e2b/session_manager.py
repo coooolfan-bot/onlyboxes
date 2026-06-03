@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from collections.abc import Mapping
 
 import structlog
 from e2b import (
@@ -120,6 +121,7 @@ class TerminalSessionManager:
         command = (command or "").strip()
         if not command:
             raise TerminalExecError("invalid_payload", "command is required")
+        _resolve_request_timeout(deadline_unix_ms)
 
         lease_duration = self._resolve_lease_duration(lease_ttl_sec)
         now = time.monotonic()
@@ -163,7 +165,6 @@ class TerminalSessionManager:
                     with self._lock:
                         # Check again in case another thread created it
                         if session_id in self._sessions:
-                            _kill_sandbox_safe(sandbox, session_id)
                             raise TerminalExecError(
                                 "session_conflict",
                                 "session was created by another request",
@@ -229,7 +230,8 @@ class TerminalSessionManager:
         file_path: str,
         action: str,
         signed_url: str,
-        deadline_unix_ms: int,
+        headers: dict[str, str] | None = None,
+        deadline_unix_ms: int = 0,
     ) -> dict:
         session_id = (session_id or "").strip()
         file_path = (file_path or "").strip()
@@ -252,6 +254,7 @@ class TerminalSessionManager:
                 file_path=file_path,
                 action=normalized_action,
                 signed_url=signed_url,
+                headers=headers or {},
                 deadline_unix_ms=deadline_unix_ms,
             )
         except TerminalExecError as exc:
@@ -286,6 +289,10 @@ class TerminalSessionManager:
 
         for session in sessions:
             _kill_sandbox_safe(session.sandbox, session.session_id)
+
+    def active_session_count(self) -> int:
+        with self._lock:
+            return len(self._sessions)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -326,6 +333,7 @@ class TerminalSessionManager:
         file_path: str,
         action: str,
         signed_url: str,
+        headers: dict[str, str],
         deadline_unix_ms: int,
     ) -> dict:
         metadata = self._probe_terminal_resource(
@@ -371,6 +379,7 @@ class TerminalSessionManager:
             signed_url=signed_url,
             content=_DeadlineBoundChunks(content, deadline_unix_ms),
             content_length=metadata["size_bytes"],
+            headers=headers,
             deadline_unix_ms=deadline_unix_ms,
         )
         return result
@@ -642,11 +651,16 @@ def _upload_to_signed_url(
     signed_url: str,
     content,
     content_length: int,
+    headers: Mapping[str, str] | None,
     deadline_unix_ms: int,
 ) -> None:
     data = _StreamingBody(content)
     request = urllib.request.Request(signed_url, data=data, method="PUT")
     request.add_header("Content-Length", str(content_length))
+    for key, value in (headers or {}).items():
+        trimmed_key = str(key).strip()
+        if trimmed_key:
+            request.add_header(trimmed_key, str(value))
     try:
         with urllib.request.urlopen(
             request, timeout=_resolve_request_timeout(deadline_unix_ms)

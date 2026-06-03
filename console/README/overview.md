@@ -16,7 +16,7 @@ The console service hosts:
   - `GET /api/v1/workers/:node_id/startup-command` always returns `410 Gone`.
   - `worker_secret` is returned once in `POST /api/v1/workers` response and is not queryable from read APIs.
   - worker types:
-    - `normal` (maps to `worker-docker`)
+    - `normal` (shared sandbox worker, implemented by `worker-docker`, `worker-boxlite`, or `worker-bridge-e2b`)
     - `worker-sys` (maps to host-shell worker)
   - worker create/delete visibility rules:
     - admin: list/stats/inflight/delete all workers; create `normal` and `worker-sys`

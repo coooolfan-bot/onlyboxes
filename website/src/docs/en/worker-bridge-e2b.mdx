@@ -8,7 +8,7 @@ export const meta = {
 
 # E2B Bridge Runtime
 
-`worker-bridge-e2b` bridges Onlyboxes to the [E2B](https://e2b.dev/) cloud sandbox platform. It connects to the console via gRPC and exposes E2B sandbox services as a standard worker with capabilities aligned to `worker-docker`
+`worker-bridge-e2b` bridges Onlyboxes to the [E2B](https://e2b.dev/) cloud sandbox platform. It connects to the console via gRPC and exposes E2B sandbox services as a standard `normal` worker with capabilities aligned to `worker-docker`.
 
 ## When to use
 
@@ -37,7 +37,7 @@ uv sync
 bash scripts/gen_proto.sh  # regenerate protobuf stubs if needed
 ```
 
-Then start the worker:
+Create a `normal` worker credential in the console, then start the worker with the returned `WORKER_ID` and `WORKER_SECRET`:
 
 ```bash
 WORKER_CONSOLE_GRPC_TARGET=127.0.0.1:50051 \
@@ -68,6 +68,7 @@ Set `WORKER_CONSOLE_INSECURE=true` when connecting without TLS.
 | --- | --- | --- | --- |
 | `WORKER_CONSOLE_GRPC_TARGET` | No | `127.0.0.1:50051` | Control node gRPC address |
 | `WORKER_CONSOLE_INSECURE` | No | `false` | Set `true` to allow insecure connections (non-TLS) |
+| `WORKER_CALL_TIMEOUT_SEC` | No | `ceil(2.5 * heartbeat)` | gRPC connect/heartbeat ack timeout |
 
 ### Identity
 
@@ -92,6 +93,7 @@ Set `WORKER_CONSOLE_INSECURE=true` when connecting without TLS.
 | `WORKER_ECHO_MAX_INFLIGHT` | No | `4` | Max concurrent echo commands |
 | `WORKER_PYTHON_EXEC_MAX_INFLIGHT` | No | `4` | Max concurrent pythonExec commands |
 | `WORKER_TERMINAL_EXEC_MAX_INFLIGHT` | No | `4` | Max concurrent terminalExec commands |
+| `WORKER_TERMINAL_RESOURCE_MAX_INFLIGHT` | No | `4` | Max concurrent terminalResource commands |
 
 ### Terminal session leases
 
@@ -101,6 +103,7 @@ Set `WORKER_CONSOLE_INSECURE=true` when connecting without TLS.
 | `WORKER_TERMINAL_LEASE_MAX_SEC` | No | `1800` | Maximum lease duration (seconds) |
 | `WORKER_TERMINAL_LEASE_DEFAULT_SEC` | No | `60` | Default lease duration (seconds) |
 | `WORKER_TERMINAL_OUTPUT_LIMIT_BYTES` | No | `1048576` | Output limit per stream (bytes) |
+| `WORKER_TERMINAL_EXPORT_MAX_BYTES` | No | `0` (unlimited) | Maximum export file size in bytes |
 
 ### Heartbeat
 

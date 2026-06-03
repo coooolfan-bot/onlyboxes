@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import time
@@ -87,6 +88,7 @@ def make_config() -> Config:
         worker_secret="secret",
         heartbeat_interval_sec=5,
         heartbeat_jitter_pct=20,
+        call_timeout_sec=13,
         node_name="node-1",
         executor_kind="e2b",
         version="dev",
@@ -125,19 +127,88 @@ def test_build_hello_declares_terminal_resource():
     assert capabilities["terminalResource"] == 7
 
 
+def test_config_default_call_timeout(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("WORKER_HEARTBEAT_INTERVAL_SEC", "5")
+    monkeypatch.delenv("WORKER_CALL_TIMEOUT_SEC", raising=False)
+
+    cfg = Config.load()
+
+    assert cfg.call_timeout_sec == 13
+
+
+def test_execute_terminal_exec_invalid_payloads(restore_executor_state):
+    executor._session_manager = SimpleNamespace(execute=lambda **kwargs: None)
+
+    result_payload, err_code, err_message = executor.execute_terminal_exec(b"{", 0)
+
+    assert result_payload == b"{}"
+    assert err_code == "invalid_payload"
+    assert err_message == "payload_json is not valid terminalExec payload"
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_loop_reports_active_session_count(monkeypatch: pytest.MonkeyPatch):
+    cfg = make_config()
+    queue = asyncio.Queue()
+    heartbeat_ack_queue = asyncio.Queue()
+    stop_event = asyncio.Event()
+
+    monkeypatch.setattr(runner, "_jitter_duration_sec", lambda base_sec, jitter_pct: 0.01)
+    monkeypatch.setattr(executor, "active_session_count", lambda: 3)
+
+    task = asyncio.create_task(
+        runner._heartbeat_loop(cfg, queue, heartbeat_ack_queue, stop_event, "registry-session-1", 5)
+    )
+
+    request = await asyncio.wait_for(queue.get(), timeout=1)
+    heartbeat = request.heartbeat
+    assert heartbeat.node_id == "worker-1"
+    assert heartbeat.session_id == "registry-session-1"
+    assert heartbeat.active_session_count == 3
+
+    await heartbeat_ack_queue.put(runner.pb.HeartbeatAck(heartbeat_interval_sec=2))
+    stop_event.set()
+    await asyncio.wait_for(task, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_loop_fails_after_two_ack_timeouts(monkeypatch: pytest.MonkeyPatch):
+    cfg = make_config()
+    cfg.call_timeout_sec = 0.01
+    queue = asyncio.Queue()
+    heartbeat_ack_queue = asyncio.Queue()
+    stop_event = asyncio.Event()
+
+    monkeypatch.setattr(runner, "_jitter_duration_sec", lambda base_sec, jitter_pct: 0.01)
+
+    with pytest.raises(runner.SessionEndedError, match="heartbeat ack deadline exceeded"):
+        await runner._heartbeat_loop(
+            cfg,
+            queue,
+            heartbeat_ack_queue,
+            stop_event,
+            "registry-session-1",
+            5,
+        )
+
+
 def test_execute_terminal_resource_success(restore_executor_state):
-    executor._session_manager = SimpleNamespace(
-        resolve_resource=lambda **kwargs: {
+    resolved = {}
+
+    def fake_resolve_resource(**kwargs):
+        resolved.update(kwargs)
+        return {
             "session_id": kwargs["session_id"],
             "file_path": kwargs["file_path"],
             "mime_type": "text/plain",
             "size_bytes": 5,
             "blob": base64.b64encode(b"hello").decode("ascii"),
         }
-    )
+
+    executor._session_manager = SimpleNamespace(resolve_resource=fake_resolve_resource)
 
     payload, err_code, err_message = executor.execute_terminal_resource(
-        b'{"session_id":"sess-1","file_path":"/tmp/hello.txt","action":"read"}',
+        b'{"session_id":"sess-1","file_path":"/tmp/hello.txt","action":"read","headers":{"x-amz-acl":"public-read"}}',
         0,
     )
 
@@ -150,6 +221,7 @@ def test_execute_terminal_resource_success(restore_executor_state):
         "size_bytes": 5,
         "blob": base64.b64encode(b"hello").decode("ascii"),
     }
+    assert resolved["headers"] == {"x-amz-acl": "public-read"}
 
 
 @pytest.mark.parametrize(
@@ -159,6 +231,18 @@ def test_execute_terminal_resource_success(restore_executor_state):
         (b"[]", "payload_json is not valid terminalResource payload"),
         (b"{", "payload_json is not valid terminalResource payload"),
         (b'{"session_id":"sess-1"}', "terminalResource session_id and file_path are required"),
+        (
+            b'{"session_id":1,"file_path":"/tmp/hello.txt"}',
+            "terminalResource session_id and file_path must be strings",
+        ),
+        (
+            b'{"session_id":"sess-1","file_path":"/tmp/hello.txt","action":1}',
+            "terminalResource action must be a string",
+        ),
+        (
+            b'{"session_id":"sess-1","file_path":"/tmp/hello.txt","action":"export","signed_url":1}',
+            "terminalResource signed_url must be a string",
+        ),
         (
             b'{"session_id":"sess-1","file_path":"/tmp/hello.txt","action":"export"}',
             "terminalResource signed_url is required for export",
@@ -221,10 +305,17 @@ def test_terminal_session_manager_export(
 ):
     uploaded = {}
 
-    def fake_upload(signed_url: str, content, content_length: int, deadline_unix_ms: int):
+    def fake_upload(
+        signed_url: str,
+        content,
+        content_length: int,
+        headers: dict[str, str],
+        deadline_unix_ms: int,
+    ):
         uploaded["signed_url"] = signed_url
         uploaded["content"] = b"".join(bytes(chunk) for chunk in content)
         uploaded["content_length"] = content_length
+        uploaded["headers"] = headers
         uploaded["deadline_unix_ms"] = deadline_unix_ms
 
     monkeypatch.setattr(session_manager_module, "_upload_to_signed_url", fake_upload)
@@ -242,6 +333,7 @@ def test_terminal_session_manager_export(
         file_path="/tmp/hello.txt",
         action=TERMINAL_RESOURCE_ACTION_EXPORT,
         signed_url="https://uploads.example.com/put",
+        headers={"x-amz-acl": "public-read"},
         deadline_unix_ms=0,
     )
 
@@ -255,6 +347,7 @@ def test_terminal_session_manager_export(
         "signed_url": "https://uploads.example.com/put",
         "content": b"hello",
         "content_length": 5,
+        "headers": {"x-amz-acl": "public-read"},
         "deadline_unix_ms": 0,
     }
 
@@ -444,10 +537,17 @@ def test_terminal_session_manager_recomputes_deadline_before_export_upload(
     def fake_time():
         return now_sec["value"]
 
-    def fake_upload(signed_url: str, content, content_length: int, deadline_unix_ms: int):
+    def fake_upload(
+        signed_url: str,
+        content,
+        content_length: int,
+        headers: dict[str, str],
+        deadline_unix_ms: int,
+    ):
         uploaded["signed_url"] = signed_url
         uploaded["content"] = b"".join(bytes(chunk) for chunk in content)
         uploaded["content_length"] = content_length
+        uploaded["headers"] = headers
         uploaded["remaining_sec"] = (deadline_unix_ms / 1000.0) - now_sec["value"]
 
     monkeypatch.setattr(session_manager_module.time, "time", fake_time)
@@ -480,6 +580,7 @@ def test_terminal_session_manager_recomputes_deadline_before_export_upload(
         "signed_url": "https://uploads.example.com/put",
         "content": b"hello",
         "content_length": 5,
+        "headers": {},
         "remaining_sec": pytest.approx(0.2, abs=0.01),
     }
 
@@ -488,7 +589,13 @@ def test_terminal_session_manager_upload_not_found_does_not_destroy_session(
     manager: TerminalSessionManager,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    def fake_upload(signed_url: str, content, content_length: int, deadline_unix_ms: int):
+    def fake_upload(
+        signed_url: str,
+        content,
+        content_length: int,
+        headers: dict[str, str],
+        deadline_unix_ms: int,
+    ):
         raise RuntimeError("upload export file failed: Not Found")
 
     monkeypatch.setattr(session_manager_module, "_upload_to_signed_url", fake_upload)
