@@ -51,6 +51,7 @@ describe('docs routing', () => {
       'worker-docker',
       'worker-boxlite',
       'worker-sys',
+      'worker-bridge-e2b',
       'console-api',
       'mcp-tools',
       'security-faq',
